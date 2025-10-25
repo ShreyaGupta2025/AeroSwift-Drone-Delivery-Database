@@ -1,11 +1,3 @@
-### 🌍 Miniworld Scenario
-
-AeroSwift Logistics is a **drone-based delivery management system** designed to handle logistics operations for lightweight packages across different zones of a city.
-
-The miniworld models how an organization uses **autonomous drones** to deliver goods efficiently while ensuring:
-- **Airspace compliance** (following aviation rules),
-- **Drone and pilot certification validation**, and
-- **Operational safety and tracking** through automated database triggers and procedures.
 
 ---
 
