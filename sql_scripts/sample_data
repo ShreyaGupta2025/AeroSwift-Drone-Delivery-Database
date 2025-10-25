@@ -1,0 +1,715 @@
+DELIMITER $$
+
+CREATE PROCEDURE assign_pilot_to_delivery(
+  IN p_delivery_id INT,
+  IN p_pilot_id INT
+)
+BEGIN
+  DECLARE v_drone_id INT;
+  DECLARE v_drone_type INT;
+  DECLARE v_license_expiry DATE;
+  DECLARE v_scheduled_end DATETIME;
+  DECLARE v_license_exists INT;
+
+  -- Get the assigned drone and its scheduled end time
+  SELECT AssignedDroneID, ScheduledEndTime 
+  INTO v_drone_id, v_scheduled_end
+  FROM Delivery 
+  WHERE DeliveryID = p_delivery_id;
+
+  IF v_drone_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' 
+    SET MESSAGE_TEXT = 'NO DRONE ASSIGNED TO DELIVERY';
+  END IF;
+
+  -- Find drone type
+  SELECT DroneTypeID 
+  INTO v_drone_type 
+  FROM Drone 
+  WHERE DroneID = v_drone_id;
+
+  -- Verify pilot license
+  SELECT COUNT(*) 
+  INTO v_license_exists
+  FROM PilotLicense
+  WHERE PilotID = p_pilot_id 
+  AND DroneTypeID = v_drone_type;
+
+  IF v_license_exists = 0 THEN
+    SIGNAL SQLSTATE '45000' 
+    SET MESSAGE_TEXT = 'PILOT NOT LICENSED FOR THIS DRONE TYPE';
+  END IF;
+
+  -- Check pilot’s license expiry
+  SELECT LicenseExpiryDate 
+  INTO v_license_expiry 
+  FROM Pilot 
+  WHERE PilotID = p_pilot_id;
+
+  IF v_license_expiry <= v_scheduled_end THEN
+    SIGNAL SQLSTATE '45000' 
+    SET MESSAGE_TEXT = 'PILOT LICENSE EXPIRES BEFORE DELIVERY END';
+  END IF;
+
+  -- Assign pilot and insert compliance record
+  UPDATE Delivery 
+  SET AssignedPilotID = p_pilot_id 
+  WHERE DeliveryID = p_delivery_id;
+
+  INSERT INTO ComplianceReport 
+  (DeliveryID, AuthorityID, ReportType, CheckDate, Status, Remarks)
+  VALUES 
+  (p_delivery_id, NULL, 'PreFlight', CURDATE(), 'Pending', 'Pilot assigned successfully');
+END$$
+
+DELIMITER ;
+
+SHOW PROCEDURE STATUS WHERE Db='aeroswift_db';
+
+SELECT * FROM Drone;
+SELECT * FROM Pilot;
+SELECT * FROM Delivery;
+SELECT * FROM OrderTable;
+
+CALL assign_drone_to_delivery(1, 1);
+SELECT * FROM Delivery;
+INSERT INTO Delivery 
+(OrderID, DeliveryZoneID, SourceHubID, RouteID, ScheduledStartTime, ScheduledEndTime)
+VALUES 
+(1, 1, 1, NULL, NOW(), DATE_ADD(NOW(), INTERVAL 2 HOUR));
+SELECT * FROM Delivery;
+
+CALL assign_drone_to_delivery(1, 1);
+
+SELECT AssignedDroneID, Status FROM Delivery WHERE DeliveryID = 1;
+SELECT * FROM ComplianceReport;
+
+SELECT * FROM Delivery;
+SELECT * FROM ComplianceReport;
+
+CALL assign_pilot_to_delivery(1, 1);
+
+SELECT d.DroneID, d.RegistrationNo, d.DroneTypeID, dt.ModelName
+FROM Drone d
+JOIN DroneType dt ON d.DroneTypeID = dt.DroneTypeID;
+
+INSERT INTO PilotLicense (PilotID, DroneTypeID, IssueDate, ExpiryDate)
+VALUES (1, 1, '2023-01-01', '2026-01-01');
+
+CALL assign_pilot_to_delivery(1, 1);
+
+SELECT AssignedPilotID FROM Delivery WHERE DeliveryID = 1;
+SELECT * FROM ComplianceReport;
+
+INSERT INTO Route (PathGeometry, DistanceKm, EstimatedDurationMin, CreatedBy)
+VALUES ('{}', 15.0, 20, 'AdminUser');
+
+INSERT INTO AirspaceZone (ZoneName, RestrictionType)
+VALUES ('Zone Alpha', 'None');
+
+INSERT INTO RouteZone (RouteID, AirspaceZoneID, IntersectType)
+VALUES (1, 1, 'Cross');
+CALL approve_route(1, 'AdminUser');
+
+SELECT * FROM Route;
+INSERT INTO Route (PathGeometry, DistanceKm, EstimatedDurationMin, CreatedBy)
+VALUES ('{}', 15.0, 20, 'AdminUser');
+
+SELECT * FROM AirspaceZone;
+INSERT INTO RouteZone (RouteID, AirspaceZoneID, IntersectType)
+VALUES (1, 1, 'Cross');
+
+
+
+USE aeroswift_db;
+SET FOREIGN_KEY_CHECKS = 0;
+TRUNCATE TABLE ComplianceReport;
+TRUNCATE TABLE FlightLog;
+TRUNCATE TABLE MaintenanceRecord;
+TRUNCATE TABLE Invoice;
+TRUNCATE TABLE Delivery;
+TRUNCATE TABLE DeliveryBatch;
+TRUNCATE TABLE RouteZone;
+TRUNCATE TABLE Waiver;
+TRUNCATE TABLE Route;
+TRUNCATE TABLE Permit;
+TRUNCATE TABLE PilotLicense;
+TRUNCATE TABLE Pilot;
+TRUNCATE TABLE Drone;
+TRUNCATE TABLE DroneType;
+TRUNCATE TABLE DroneHub;
+TRUNCATE TABLE RegulatoryAuthority;
+TRUNCATE TABLE AirspaceZone;
+TRUNCATE TABLE DeliveryZone;
+TRUNCATE TABLE OrderItem;
+TRUNCATE TABLE OrderTable;
+TRUNCATE TABLE CustomerPhone;
+TRUNCATE TABLE Customer;
+TRUNCATE TABLE Company;
+SET FOREIGN_KEY_CHECKS = 1;
+
+
+INSERT INTO Company (CompanyName, HQAddress, ContactEmail, ContactPhone) VALUES
+('AeroSwift Logistics', 'MetroCity HQ', 'contact@aeroswift.com', '9998887777'),
+('SkyDeliver Pvt Ltd', 'TechPark, Bengaluru', 'info@skydeliver.com', '9887766554'),
+('AirRoute Drones', 'MG Road, Pune', 'support@airroute.com', '9776655443'),
+('DroneLine Express', 'Salt Lake, Kolkata', 'hello@droneline.com', '9898898989'),
+('WingPost Ltd', 'Connaught Place, Delhi', 'contact@wingpost.in', '9876567890'),
+('UrbanFly', 'Gachibowli, Hyderabad', 'hello@urbanfly.com', '9966554433'),
+('RapidAero', 'Electronic City, Bengaluru', 'contact@rapidaero.com', '9009988776'),
+('SkyPort', 'Andheri, Mumbai', 'team@skyport.in', '9988776655'),
+('SwiftAir Logistics', 'T Nagar, Chennai', 'hello@swiftair.in', '9090909090'),
+('DroneBridge', 'Infocity, Ahmedabad', 'help@dronebridge.com', '9123456789');
+
+INSERT INTO DroneType (ModelName, MaxPayloadKg, CargoLengthCm, CargoWidthCm, CargoHeightCm, RangeKm, EnergyPerKm, MinBatteryForTakeoffPercent, MaxStopsPerFlight)
+VALUES
+('AS-100', 5.0, 60.0, 40.0, 30.0, 20, 0.25, 30, 3),
+('AS-200', 8.0, 80.0, 60.0, 45.0, 40, 0.40, 35, 4),
+('AS-300', 10.0, 90.0, 70.0, 50.0, 50, 0.45, 40, 5),
+('AS-400', 15.0, 100.0, 80.0, 60.0, 70, 0.50, 40, 6),
+('AS-500', 20.0, 120.0, 90.0, 70.0, 100, 0.55, 45, 7),
+('AS-600', 25.0, 130.0, 100.0, 80.0, 120, 0.60, 50, 8),
+('AS-700', 30.0, 150.0, 120.0, 90.0, 150, 0.65, 50, 8),
+('AS-800', 35.0, 170.0, 130.0, 100.0, 180, 0.70, 55, 9),
+('AS-900', 40.0, 190.0, 140.0, 110.0, 200, 0.75, 60, 9),
+('AS-1000', 50.0, 200.0, 150.0, 120.0, 250, 0.80, 60, 10);
+
+
+INSERT INTO DroneHub (HubName, LocationLat, LocationLong, Address, MaxDocks, CurrentAvailableDocks, ContactPhone)
+VALUES
+('Central Hub', 17.445, 78.348, 'Central Campus, Hyderabad', 10, 8, '9998887777'),
+('North Hub', 17.495, 78.360, 'North Sector, Hyderabad', 8, 6, '9998887778'),
+('East Hub', 17.480, 78.370, 'East Side, Hyderabad', 9, 7, '9998887779'),
+('West Hub', 17.430, 78.340, 'West Gate, Hyderabad', 10, 8, '9998887780'),
+('South Hub', 17.410, 78.330, 'South Colony, Hyderabad', 6, 4, '9998887781'),
+('Tech Hub', 17.450, 78.350, 'Tech Park Zone', 12, 10, '9998887782'),
+('Airport Hub', 17.460, 78.380, 'Airport Road', 8, 5, '9998887783'),
+('Old City Hub', 17.400, 78.310, 'Old City Area', 5, 3, '9998887784'),
+('City Hub', 17.470, 78.355, 'Main City Center', 9, 8, '9998887785'),
+('Industrial Hub', 17.460, 78.365, 'Industrial Area', 10, 9, '9998887786');
+
+
+INSERT INTO Customer (FirstName, LastName, Email, AddressStreet, AddressCity, AddressState, AddressPincode)
+VALUES
+('Shreya', 'Gupta', 'shreya@example.com', '12 College Rd', 'MetroCity', 'StateX', '500001'),
+('Arjun', 'Mehta', 'arjunm@gmail.com', '45 Lake View', 'Bangalore', 'KA', '560001'),
+('Riya', 'Nair', 'riyan@gmail.com', '88 Sunrise Lane', 'Chennai', 'TN', '600001'),
+('Karthik', 'Patel', 'kpatel@yahoo.com', '90 MG Road', 'Mumbai', 'MH', '400001'),
+('Isha', 'Kumar', 'isha.kumar@gmail.com', '23 Hill View', 'Delhi', 'DL', '110001'),
+('Naman', 'Reddy', 'namanr@hotmail.com', '56 Green St', 'Hyderabad', 'TS', '500002'),
+('Priya', 'Das', 'priyadas@gmail.com', '67 Rose St', 'Kolkata', 'WB', '700001'),
+('Kabir', 'Singh', 'kabir@yahoo.com', '78 Silver Lane', 'Pune', 'MH', '411001'),
+('Aditi', 'Joshi', 'aditij@gmail.com', '34 Nehru Rd', 'Ahmedabad', 'GJ', '380001'),
+('Rohan', 'Verma', 'rohanv@gmail.com', '21 Blue St', 'Lucknow', 'UP', '226001');
+
+INSERT INTO Drone (RegistrationNo, DroneTypeID, CompanyID, CurrentHubID, Status, BatteryLevelPercent)
+VALUES
+('REG-001', 1, 1, 1, 'Idle', 90),
+('REG-002', 2, 1, 1, 'Charging', 60),
+('REG-003', 3, 2, 2, 'Idle', 80),
+('REG-004', 4, 2, 3, 'Maintenance', 40),
+('REG-005', 5, 3, 4, 'Idle', 95),
+('REG-006', 6, 3, 5, 'Active', 75),
+('REG-007', 7, 4, 6, 'Idle', 88),
+('REG-008', 8, 4, 7, 'Charging', 55),
+('REG-009', 9, 5, 8, 'Idle', 85),
+('REG-010', 10, 5, 9, 'Active', 92);
+
+
+
+SELECT PilotID, Name FROM Pilot;
+
+
+INSERT INTO Pilot (Name, LicenseNo, ContactPhone, LicenseIssueDate, LicenseExpiryDate, ActiveStatus)
+VALUES
+('Rhea Kumar', 'LIC-1001', '9001234567', '2023-01-10', '2026-01-09', 1),
+('Arjun Singh', 'LIC-1002', '9009876543', '2022-06-01', '2025-05-31', 1),
+('Megha Rao', 'LIC-1003', '9004567890', '2022-08-12', '2025-08-11', 1),
+('Ravi Patel', 'LIC-1004', '9006543210', '2023-02-01', '2026-01-31', 1),
+('Sanya Mehta', 'LIC-1005', '9001112233', '2022-03-15', '2025-03-14', 1),
+('Dhruv Jain', 'LIC-1006', '9002223344', '2023-04-10', '2026-04-09', 1),
+('Ananya Bose', 'LIC-1007', '9003334455', '2023-05-05', '2026-05-04', 1),
+('Kabir Iyer', 'LIC-1008', '9004445566', '2022-09-20', '2025-09-19', 1),
+('Nisha Kapoor', 'LIC-1009', '9005556677', '2023-07-07', '2026-07-06', 1),
+('Om Prakash', 'LIC-1010', '9006667788', '2023-08-08', '2026-08-07', 1),
+('Sneha Reddy', 'LIC-1011', '9007778899', '2022-11-11', '2025-11-10', 1),
+('Rohan Das', 'LIC-1012', '9008889900', '2023-02-15', '2026-02-14', 1),
+('Ishaan Sharma', 'LIC-1013', '9009990011', '2023-03-20', '2026-03-19', 1),
+('Tara Krishnan', 'LIC-1014', '9010001122', '2022-05-10', '2025-05-09', 1),
+('Kunal Bhatt', 'LIC-1015', '9011112233', '2023-06-25', '2026-06-24', 1);
+
+INSERT INTO PilotLicense (PilotID, DroneTypeID, IssueDate, ExpiryDate)
+VALUES
+(1, 1, '2023-01-10', '2026-01-09'),
+(2, 2, '2022-06-01', '2025-05-31'),
+(3, 3, '2022-08-12', '2025-08-11'),
+(4, 4, '2023-02-01', '2026-01-31'),
+(5, 5, '2022-03-15', '2025-03-14'),
+(6, 6, '2023-04-10', '2026-04-09'),
+(7, 7, '2023-05-05', '2026-05-04'),
+(8, 8, '2022-09-20', '2025-09-19'),
+(9, 9, '2023-07-07', '2026-07-06'),
+(10, 10, '2023-08-08', '2026-08-07'),
+(11, 1, '2022-11-11', '2025-11-10'),
+(12, 2, '2023-02-15', '2026-02-14'),
+(13, 3, '2023-03-20', '2026-03-19'),
+(14, 4, '2022-05-10', '2025-05-09'),
+(15, 5, '2023-06-25', '2026-06-24');
+
+
+INSERT INTO OrderTable (
+  CustomerID,
+  Priority,
+  Status,
+  BillingAmount,
+  BillingAddressStreet,
+  BillingAddressCity,
+  BillingAddressPincode,
+  DeliveryZoneID
+)
+VALUES
+(1, 'Standard', 'Created', 199.99, '12 College Rd', 'MetroCity', '500001', 1),
+(2, 'Express', 'Confirmed', 249.50, '45 Lake View', 'Bangalore', '560001', 1),
+(3, 'Standard', 'Created', 179.00, '88 Sunrise Lane', 'Chennai', '600001', 1),
+(4, 'Express', 'Confirmed', 299.00, '90 MG Road', 'Mumbai', '400001', 1),
+(5, 'Standard', 'Created', 149.00, '23 Hill View', 'Delhi', '110001', 1),
+(6, 'Express', 'Confirmed', 350.00, '56 Green St', 'Hyderabad', '500002', 1),
+(7, 'Standard', 'Created', 180.00, '67 Rose St', 'Kolkata', '700001', 1),
+(8, 'Express', 'Confirmed', 270.00, '78 Silver Lane', 'Pune', '411001', 1),
+(9, 'Standard', 'Created', 120.00, '34 Nehru Rd', 'Ahmedabad', '380001', 1),
+(10, 'Express', 'Confirmed', 420.00, '21 Blue St', 'Lucknow', '226001', 1);
+
+SELECT * FROM Customer;
+SELECT * FROM DeliveryZone;
+
+USE aeroswift_db;
+
+INSERT INTO DeliveryZone (ZoneName, ZoneGeometry, PriorityTag)
+VALUES
+('Zone A', 'POLYGON((10 10, 20 10, 20 20, 10 20, 10 10))', 'High'),
+('Zone B', 'POLYGON((30 30, 40 30, 40 40, 30 40, 30 30))', 'Normal'),
+('Zone C', 'POLYGON((50 50, 60 50, 60 60, 50 60, 50 50))', 'Normal'),
+('Zone D', 'POLYGON((70 70, 80 70, 80 80, 70 80, 70 70))', 'High'),
+('Zone E', 'POLYGON((15 15, 25 15, 25 25, 15 25, 15 15))', 'Normal'),
+('Zone F', 'POLYGON((35 35, 45 35, 45 45, 35 45, 35 35))', 'High'),
+('Zone G', 'POLYGON((55 55, 65 55, 65 65, 55 65, 55 55))', 'Normal'),
+('Zone H', 'POLYGON((75 75, 85 75, 85 85, 75 85, 75 75))', 'Normal'),
+('Zone I', 'POLYGON((20 20, 30 20, 30 30, 20 30, 20 20))', 'High'),
+('Zone J', 'POLYGON((40 40, 50 40, 50 50, 40 50, 40 40))', 'Normal');
+
+
+INSERT INTO OrderTable (
+  CustomerID,
+  Priority,
+  Status,
+  BillingAmount,
+  BillingAddressStreet,
+  BillingAddressCity,
+  BillingAddressPincode,
+  DeliveryZoneID
+)
+VALUES
+(1, 'Standard', 'Created', 199.99, '12 College Rd', 'Delhi', '110001', 1),
+(2, 'Express', 'Confirmed', 249.50, '45 Lake View', 'Bangalore', '560001', 2),
+(3, 'Standard', 'Created', 179.00, '88 Sunrise Lane', 'Chennai', '600001', 3),
+(4, 'Express', 'Confirmed', 299.00, '90 MG Road', 'Mumbai', '400001', 4),
+(5, 'Standard', 'Created', 149.00, '23 Hill View', 'Delhi', '110001', 5),
+(6, 'Express', 'Confirmed', 350.00, '56 Green St', 'Hyderabad', '500002', 6),
+(7, 'Standard', 'Created', 180.00, '67 Rose St', 'Kolkata', '700001', 7),
+(8, 'Express', 'Confirmed', 270.00, '78 Silver Lane', 'Pune', '411001', 8),
+(9, 'Standard', 'Created', 120.00, '34 Nehru Rd', 'Ahmedabad', '380001', 9),
+(10, 'Express', 'Confirmed', 420.00, '21 Blue St', 'Lucknow', '226001', 10);
+
+
+select * from customer;
+
+INSERT INTO OrderTable (
+  CustomerID,
+  Priority,
+  Status,
+  BillingAmount,
+  BillingAddressStreet,
+  BillingAddressCity,
+  BillingAddressPincode,
+  DeliveryZoneID
+)
+VALUES
+(1, 'Standard', 'Created', 199.99, '12 College Rd', 'Delhi', '110001', 1),
+(2, 'Express', 'Confirmed', 249.50, '45 Lake View', 'Bangalore', '560001', 2),
+(3, 'Standard', 'Created', 179.00, '88 Sunrise Lane', 'Chennai', '600001', 3),
+(4, 'Express', 'Confirmed', 299.00, '90 MG Road', 'Mumbai', '400001', 4),
+(5, 'Standard', 'Created', 149.00, '23 Hill View', 'Delhi', '110001', 5),
+(6, 'Express', 'Confirmed', 350.00, '56 Green St', 'Hyderabad', '500002', 6),
+(7, 'Standard', 'Created', 180.00, '67 Rose St', 'Kolkata', '700001', 7),
+(8, 'Express', 'Confirmed', 270.00, '78 Silver Lane', 'Pune', '411001', 8),
+(9, 'Standard', 'Created', 120.00, '34 Nehru Rd', 'Ahmedabad', '380001', 9),
+(10, 'Express', 'Confirmed', 420.00, '21 Blue St', 'Lucknow', '226001', 10);
+
+
+INSERT INTO OrderTable (
+  CustomerID,
+  Priority,
+  Status,
+  BillingAmount,
+  BillingAddressStreet,
+  BillingAddressCity,
+  BillingAddressPincode,
+  DeliveryZoneID
+)
+VALUES
+(1, 'Standard', 'Created', 199.99, '12 College Rd', 'Delhi', '110001', 1),
+(2, 'Express', 'Confirmed', 249.50, '45 Lake View', 'Bangalore', '560001', 2),
+(3, 'Standard', 'Created', 179.00, '88 Sunrise Lane', 'Chennai', '600001', 3),
+(4, 'Express', 'Confirmed', 299.00, '90 MG Road', 'Mumbai', '400001', 4),
+(5, 'Standard', 'Created', 149.00, '23 Hill View', 'Delhi', '110001', 5),
+(6, 'Express', 'Confirmed', 350.00, '56 Green St', 'Hyderabad', '500002', 6),
+(7, 'Standard', 'Created', 180.00, '67 Rose St', 'Kolkata', '700001', 7),
+(8, 'Express', 'Confirmed', 270.00, '78 Silver Lane', 'Pune', '411001', 8),
+(9, 'Standard', 'Created', 120.00, '34 Nehru Rd', 'Ahmedabad', '380001', 9),
+(10, 'Express', 'Confirmed', 420.00, '21 Blue St', 'Lucknow', '226001', 10);
+
+
+SHOW CREATE TABLE OrderTable;
+SELECT * FROM Customer;
+SELECT * FROM DeliveryZone;
+
+INSERT INTO OrderTable (
+  CustomerID,
+  Priority,
+  Status,
+  BillingAmount,
+  BillingAddressStreet,
+  BillingAddressCity,
+  BillingAddressPincode,
+  DeliveryZoneID
+)
+VALUES
+(1, 'Standard', 'Created', 199.99, '12 College Rd', 'Delhi', '110001', 11),
+(2, 'Express', 'Confirmed', 249.50, '45 Lake View', 'Bangalore', '560001', 12),
+(3, 'Standard', 'Created', 179.00, '88 Sunrise Lane', 'Chennai', '600001', 13),
+(4, 'Express', 'Confirmed', 299.00, '90 MG Road', 'Mumbai', '400001', 14),
+(5, 'Standard', 'Created', 149.00, '23 Hill View', 'Delhi', '110001', 15),
+(6, 'Express', 'Confirmed', 350.00, '56 Green St', 'Hyderabad', '500002', 16),
+(7, 'Standard', 'Created', 180.00, '67 Rose St', 'Kolkata', '700001', 17),
+(8, 'Express', 'Confirmed', 270.00, '78 Silver Lane', 'Pune', '411001', 18),
+(9, 'Standard', 'Created', 120.00, '34 Nehru Rd', 'Ahmedabad', '380001', 19),
+(10, 'Express', 'Confirmed', 420.00, '21 Blue St', 'Lucknow', '226001', 20);
+
+SELECT OrderID, CustomerID, DeliveryZoneID FROM OrderTable;
+
+INSERT INTO OrderItem 
+(OrderID, ItemNo, SKU, Description, WeightKg, LengthCm, WidthCm, HeightCm, Quantity, SpecialHandlingFlag)
+VALUES
+(71, 1, 'DRN-BAT-001', 'Drone Battery Pack 3000mAh', 1.250, 15.00, 10.00, 5.00, 2, 0),
+(72, 1, 'DRN-MTR-002', 'Brushless Motor Set', 0.800, 8.00, 8.00, 4.00, 1, 0),
+(73, 1, 'DRN-CAM-003', 'HD Aerial Camera with Stabilization', 0.450, 12.00, 10.00, 6.00, 1, 1),
+(74, 1, 'DRN-FRM-004', 'Lightweight Carbon Fiber Drone Frame', 1.100, 30.00, 25.00, 10.00, 1, 0),
+(75, 1, 'DRN-CNT-005', 'Drone Control Board v2.0', 0.200, 10.00, 8.00, 3.00, 3, 0),
+(76, 1, 'DRN-GIM-006', '3-Axis Gimbal Stabilizer', 0.750, 18.00, 15.00, 8.00, 1, 1),
+(77, 1, 'DRN-PROP-007', 'Set of 4 Carbon Propellers', 0.300, 25.00, 25.00, 5.00, 2, 0),
+(78, 1, 'DRN-SEN-008', 'GPS Navigation Module', 0.150, 5.00, 4.00, 2.00, 1, 0),
+(79, 1, 'DRN-CVR-009', 'Protective Drone Cover', 0.500, 20.00, 15.00, 5.00, 1, 0),
+(80, 1, 'DRN-CHG-010', 'Smart Drone Fast Charger', 0.600, 12.00, 8.00, 4.00, 2, 0);
+
+SET SESSION group_concat_max_len = 1000000;
+SET @schema_name = 'aeroswift_db';
+
+SELECT GROUP_CONCAT(
+         CONCAT(
+           'SELECT ''', TABLE_NAME, ''' AS table_name, COUNT(*) AS row_count FROM `',
+           TABLE_SCHEMA, '`.`', TABLE_NAME, '`'
+         ) SEPARATOR ' UNION ALL '
+       ) INTO @sql
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_SCHEMA = @schema_name;
+
+-- DEBUG: uncomment to inspect generated SQL
+-- SELECT @sql;
+
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+
+USE aeroswift_db;
+
+INSERT INTO AirspaceZone 
+(ZoneName, ZoneGeometry, RestrictionType, ActiveFrom, ActiveTo, AuthorityID)
+VALUES
+('Zone Alpha', 'POLYGON((10 10, 20 10, 20 20, 10 20, 10 10))', 'NoFly', '2024-01-01', '2025-12-31', 1),
+('Zone Beta', 'POLYGON((30 30, 40 30, 40 40, 30 40, 30 30))', 'HeightLimit', '2024-02-01', '2026-02-01', 2),
+('Zone Gamma', 'POLYGON((50 50, 60 50, 60 60, 50 60, 50 50))', 'DayTimeOnly', '2024-03-01', '2026-03-01', 3),
+('Zone Delta', 'POLYGON((70 70, 80 70, 80 80, 70 80, 70 70))', 'None', '2024-04-01', '2026-04-01', 4),
+('Zone Epsilon', 'POLYGON((90 90, 100 90, 100 100, 90 100, 90 90))', 'HeightLimit', '2024-05-01', '2026-05-01', 5),
+('Zone Zeta', 'POLYGON((110 110, 120 110, 120 120, 110 120, 110 110))', 'NoFly', '2024-06-01', '2026-06-01', 6),
+('Zone Eta', 'POLYGON((130 130, 140 130, 140 140, 130 140, 130 130))', 'DayTimeOnly', '2024-07-01', '2026-07-01', 7),
+('Zone Theta', 'POLYGON((150 150, 160 150, 160 160, 150 160, 150 150))', 'None', '2024-08-01', '2026-08-01', 8),
+('Zone Iota', 'POLYGON((170 170, 180 170, 180 180, 170 180, 170 170))', 'NoFly', '2024-09-01', '2026-09-01', 9),
+('Zone Kappa', 'POLYGON((190 190, 200 190, 200 200, 190 200, 190 190))', 'HeightLimit', '2024-10-01', '2026-10-01', 10);
+
+
+desc Company;
+desc Customer;
+desc DeliveryZone;
+desc Drone;
+desc DroneHub;
+desc DroneType;
+desc OrderItem;
+desc OrderTable;
+desc Pilot;
+desc PilotLicense;
+
+select * from Company;
+
+
+INSERT INTO Route 
+(PathGeometry, DistanceKm, EstimatedDurationMin, ApprovedFlag, CreatedBy, CreatedAt)
+VALUES
+('LINESTRING(10 10, 20 20)', 5.5, 15, 'Y', 'AdminUser', '2025-01-10 10:00:00'),
+('LINESTRING(15 15, 25 25)', 8.2, 25, 'N', 'Planner1', '2025-01-15 11:00:00'),
+('LINESTRING(20 20, 30 30)', 10.5, 30, 'Y', 'Planner2', '2025-01-20 09:30:00'),
+('LINESTRING(25 25, 35 35)', 12.0, 35, 'N', 'AdminUser', '2025-01-25 14:00:00'),
+('LINESTRING(30 30, 40 40)', 15.8, 45, 'Y', 'FlightOps', '2025-02-01 16:30:00'),
+('LINESTRING(35 35, 45 45)', 18.4, 50, 'Y', 'Planner3', '2025-02-10 13:45:00'),
+('LINESTRING(40 40, 50 50)', 20.0, 55, 'N', 'AdminUser', '2025-02-15 15:10:00'),
+('LINESTRING(45 45, 55 55)', 22.5, 60, 'Y', 'Planner1', '2025-02-20 08:20:00'),
+('LINESTRING(50 50, 60 60)', 25.0, 65, 'N', 'Planner2', '2025-02-25 18:00:00'),
+('LINESTRING(55 55, 65 65)', 28.3, 70, 'Y', 'FlightOps', '2025-03-01 10:45:00');
+
+
+USE aeroswift_db;
+
+INSERT INTO RegulatoryAuthority 
+(AuthorityName, ContactInfo, JurisdictionNotes)
+VALUES
+('Directorate General of Civil Aviation', 
+ 'contact@dgca.gov.in | +91-1234567890', 
+ 'Responsible for regulation of civil aviation in India. Oversees drone operation policies and certifications.'),
+('Civil Aviation Authority of India', 
+ 'info@caai.gov.in | +91-2345678901', 
+ 'Supervises and enforces airspace rules, particularly for commercial drone operations.'),
+('Bureau of Air Safety', 
+ 'safety@bas.gov.in | +91-3456789012', 
+ 'Handles air safety incidents, drone flight violations, and compliance checks.'),
+('Regional Flight Operations South', 
+ 'ops.south@aviation.in | +91-4567890123', 
+ 'Oversees operations, authorizations, and safety protocols in Southern India.'),
+('Regional Flight Operations North', 
+ 'ops.north@aviation.in | +91-5678901234', 
+ 'Oversees drone operations and airspace management across Northern India.'),
+('Air Traffic Control Bureau', 
+ 'control@atcb.in | +91-6789012345', 
+ 'Manages controlled airspace and coordinates flight path clearances for drones.'),
+('Drone Compliance Authority', 
+ 'support@dca.in | +91-7890123456', 
+ 'Responsible for licensing, operational compliance, and flight data audits for drones.'),
+('Ministry of Civil Aviation', 
+ 'admin@moca.gov.in | +91-8901234567', 
+ 'Government ministry overseeing national aviation and drone policies.'),
+('Flight Path Review Board', 
+ 'review@fpb.in | +91-9012345678', 
+ 'Evaluates and approves flight routes for high-priority and restricted drone operations.'),
+('Aviation Policy Council', 
+ 'policy@apc.gov.in | +91-0123456789', 
+ 'Advisory board developing aviation strategies and future drone legislation.');
+
+
+USE aeroswift_db;
+
+INSERT INTO AirspaceZone 
+(ZoneName, ZoneGeometry, RestrictionType, ActiveFrom, ActiveTo, AuthorityID)
+VALUES
+('Zone Alpha', 'POLYGON((10 10, 20 10, 20 20, 10 20, 10 10))', 'NoFly', '2024-01-01', '2026-12-31', 1),
+('Zone Bravo', 'POLYGON((30 30, 40 30, 40 40, 30 40, 30 30))', 'HeightLimit', '2024-02-01', '2026-12-31', 2),
+('Zone Charlie', 'POLYGON((50 50, 60 50, 60 60, 50 60, 50 50))', 'DayTimeOnly', '2024-03-01', '2026-12-31', 3),
+('Zone Delta', 'POLYGON((70 70, 80 70, 80 80, 70 80, 70 70))', 'None', '2024-04-01', '2026-12-31', 4),
+('Zone Echo', 'POLYGON((90 90, 100 90, 100 100, 90 100, 90 90))', 'NoFly', '2024-05-01', '2026-12-31', 5),
+('Zone Foxtrot', 'POLYGON((110 110, 120 110, 120 120, 110 120, 110 110))', 'HeightLimit', '2024-06-01', '2026-12-31', 6),
+('Zone Golf', 'POLYGON((130 130, 140 130, 140 140, 130 140, 130 130))', 'DayTimeOnly', '2024-07-01', '2026-12-31', 7),
+('Zone Hotel', 'POLYGON((150 150, 160 150, 160 160, 150 160, 150 150))', 'None', '2024-08-01', '2026-12-31', 8),
+('Zone India', 'POLYGON((170 170, 180 170, 180 180, 170 180, 170 170))', 'NoFly', '2024-09-01', '2026-12-31', 9),
+('Zone Juliet', 'POLYGON((190 190, 200 190, 200 200, 190 200, 190 190))', 'HeightLimit', '2024-10-01', '2026-12-31', 10);
+
+
+USE aeroswift_db;
+
+INSERT INTO CustomerPhone (CustomerID, PhoneNo)
+VALUES
+(1, '9000010001'),
+(1, '9000010002'),
+(2, '9000020001'),
+(2, '9000020002'),
+(3, '9000030001'),
+(3, '9000030002'),
+(4, '9000040001'),
+(4, '9000040002'),
+(5, '9000050001'),
+(6, '9000060001'),
+(6, '9000060002'),
+(7, '9000070001'),
+(8, '9000080001'),
+(9, '9000090001'),
+(9, '9000090002'),
+(10, '9000100001');
+
+
+USE aeroswift_db;
+
+INSERT INTO Permit 
+(DroneID, AuthorityID, IssueDate, ExpiryDate, PermitType, PermitDocumentLink, Status)
+VALUES
+(1, 1, '2024-01-10', '2026-01-09', 'Standard Operations Permit', 'https://docs.aeroswift.com/permit/PER-001.pdf', 'Active'),
+(2, 2, '2023-12-01', '2025-12-01', 'Night Flight Authorization', 'https://docs.aeroswift.com/permit/PER-002.pdf', 'Active'),
+(3, 3, '2024-03-15', '2026-03-14', 'Cargo Delivery Permit', 'https://docs.aeroswift.com/permit/PER-003.pdf', 'Active'),
+(4, 4, '2024-02-20', '2025-12-20', 'Urban Delivery Special Permit', 'https://docs.aeroswift.com/permit/PER-004.pdf', 'Revoked'),
+(5, 5, '2023-10-05', '2025-10-04', 'High Altitude Flight Permit', 'https://docs.aeroswift.com/permit/PER-005.pdf', 'Active'),
+(6, 6, '2024-05-12', '2026-05-11', 'Restricted Zone Operations', 'https://docs.aeroswift.com/permit/PER-006.pdf', 'Active'),
+(7, 7, '2023-09-01', '2025-09-01', 'Experimental Drone Permit', 'https://docs.aeroswift.com/permit/PER-007.pdf', 'Expired'),
+(8, 8, '2024-01-25', '2026-01-25', 'Express Logistics Authorization', 'https://docs.aeroswift.com/permit/PER-008.pdf', 'Active'),
+(9, 9, '2024-04-10', '2026-04-10', 'Long Range Endurance Permit', 'https://docs.aeroswift.com/permit/PER-009.pdf', 'Active'),
+(10, 10, '2023-11-20', '2025-11-20', 'Commercial Airspace Clearance', 'https://docs.aeroswift.com/permit/PER-010.pdf', 'Revoked');
+
+
+USE aeroswift_db;
+
+INSERT INTO Waiver 
+(AuthorityID, GrantedForRouteID, GrantedFromDate, GrantedToDate, DocumentLink, Status)
+VALUES
+(1, 1, '2024-01-10', '2025-01-10', 'https://docs.aeroswift.com/waiver/WVR-001.pdf', 'Granted'),
+(2, 2, '2024-02-15', '2025-02-15', 'https://docs.aeroswift.com/waiver/WVR-002.pdf', 'Granted'),
+(3, 3, '2024-03-01', '2025-03-01', 'https://docs.aeroswift.com/waiver/WVR-003.pdf', 'Revoked'),
+(4, 4, '2024-04-05', '2025-04-05', 'https://docs.aeroswift.com/waiver/WVR-004.pdf', 'Granted'),
+(5, 5, '2024-05-12', '2025-05-12', 'https://docs.aeroswift.com/waiver/WVR-005.pdf', 'Expired'),
+(6, 6, '2024-06-18', '2025-06-18', 'https://docs.aeroswift.com/waiver/WVR-006.pdf', 'Granted'),
+(7, 7, '2024-07-20', '2025-07-20', 'https://docs.aeroswift.com/waiver/WVR-007.pdf', 'Granted'),
+(8, 8, '2024-08-25', '2025-08-25', 'https://docs.aeroswift.com/waiver/WVR-008.pdf', 'Revoked'),
+(9, 9, '2024-09-10', '2025-09-10', 'https://docs.aeroswift.com/waiver/WVR-009.pdf', 'Granted'),
+(10, 10, '2024-10-15', '2025-10-15', 'https://docs.aeroswift.com/waiver/WVR-010.pdf', 'Expired');
+
+
+SELECT RouteID FROM Route;
+SELECT AirspaceZoneID FROM AirspaceZone;
+SELECT WaiverID FROM Waiver;
+
+
+USE aeroswift_db;
+
+INSERT INTO RouteZone (RouteID, AirspaceZoneID, IntersectType, WaiverID)
+VALUES
+(1, 31, 'Cross', 11),
+(2, 32, 'Touch', 12),
+(3, 33, 'Contain', 13),
+(4, 34, 'Cross', 14),
+(5, 35, 'Touch', 15),
+(6, 36, 'Contain', 16),
+(7, 37, 'Cross', 17),
+(8, 38, 'Touch', 18),
+(9, 39, 'Contain', 19),
+(10, 40, 'Cross', 20);
+
+
+USE aeroswift_db;
+
+INSERT INTO DeliveryBatch 
+(DeliveryZoneID, WindowStart, WindowEnd, Status, EstimatedSavings)
+VALUES
+(11, '2025-10-17 08:00:00', '2025-10-17 10:00:00', 'Open', 120.50),
+(12, '2025-10-17 09:00:00', '2025-10-17 11:30:00', 'Open', 95.25),
+(13, '2025-10-17 10:00:00', '2025-10-17 12:00:00', 'Closed', 80.75),
+(14, '2025-10-17 11:00:00', '2025-10-17 13:30:00', 'Closed', 110.40),
+(15, '2025-10-17 12:00:00', '2025-10-17 14:00:00', 'Open', 130.10),
+(16, '2025-10-17 13:00:00', '2025-10-17 15:00:00', 'Closed', 100.00),
+(17, '2025-10-17 14:00:00', '2025-10-17 16:00:00', 'Open', 75.80),
+(18, '2025-10-17 15:00:00', '2025-10-17 17:00:00', 'Closed', 88.65),
+(19, '2025-10-17 16:00:00', '2025-10-17 18:00:00', 'Open', 112.90),
+(20, '2025-10-17 17:00:00', '2025-10-17 19:00:00', 'Closed', 140.75);
+
+USE aeroswift_db;
+
+INSERT INTO Delivery 
+(OrderID, DeliveryZoneID, AssignedDroneID, AssignedPilotID, SourceHubID, DestinationHubID, RouteID, BatchID, 
+ ScheduledStartTime, ScheduledEndTime, ActualStartTime, ActualEndTime, Status, EstimatedCost, ActualCost, ProofOfDeliveryLink)
+VALUES
+(71, 11, 1, 1, 1, 2, 1, 1, '2025-10-17 08:00:00', '2025-10-17 09:00:00', '2025-10-17 08:05:00', '2025-10-17 09:02:00', 'Completed', 120.00, 118.50, 'https://proofs.aeroswift.com/del71.pdf'),
+(72, 12, 2, 2, 2, 3, 2, 2, '2025-10-17 09:15:00', '2025-10-17 10:15:00', '2025-10-17 09:20:00', '2025-10-17 10:12:00', 'Completed', 140.00, 139.20, 'https://proofs.aeroswift.com/del72.pdf'),
+(73, 13, 3, 3, 3, 4, 3, 3, '2025-10-17 10:00:00', '2025-10-17 11:10:00', '2025-10-17 10:05:00', '2025-10-17 11:00:00', 'Completed', 160.00, 158.75, 'https://proofs.aeroswift.com/del73.pdf'),
+(74, 14, 4, 4, 4, 5, 4, 4, '2025-10-17 11:00:00', '2025-10-17 12:30:00', '2025-10-17 11:10:00', NULL, 'InTransit', 180.00, 0.00, NULL),
+(75, 15, 5, 5, 5, 6, 5, 5, '2025-10-17 12:30:00', '2025-10-17 13:45:00', NULL, NULL, 'Scheduled', 150.00, 0.00, NULL),
+(76, 16, 6, 6, 6, 7, 6, 6, '2025-10-17 13:00:00', '2025-10-17 14:10:00', '2025-10-17 13:05:00', '2025-10-17 14:05:00', 'Completed', 170.00, 169.00, 'https://proofs.aeroswift.com/del76.pdf'),
+(77, 17, 7, 7, 7, 8, 7, 7, '2025-10-17 14:15:00', '2025-10-17 15:25:00', '2025-10-17 14:20:00', '2025-10-17 15:18:00', 'Completed', 155.00, 154.40, 'https://proofs.aeroswift.com/del77.pdf'),
+(78, 18, 8, 8, 8, 9, 8, 8, '2025-10-17 15:30:00', '2025-10-17 16:45:00', NULL, NULL, 'Scheduled', 165.00, 0.00, NULL),
+(79, 19, 9, 9, 9, 10, 9, 9, '2025-10-17 16:45:00', '2025-10-17 18:00:00', '2025-10-17 16:50:00', '2025-10-17 17:58:00', 'Completed', 175.00, 173.60, 'https://proofs.aeroswift.com/del79.pdf'),
+(80, 20, 10, 10, 10, 1, 10, 10, '2025-10-17 17:30:00', '2025-10-17 18:45:00', NULL, NULL, 'Scheduled', 190.00, 0.00, NULL);
+
+
+USE aeroswift_db;
+
+INSERT INTO FlightLog 
+(DeliveryID, DroneID, PilotID, RouteID, StartTime, EndTime, 
+ BatteryStartPercent, BatteryEndPercent, TelemetrySummaryLink, Anomalies, DistanceKm, FlightStatus)
+VALUES
+(1, 1, 1, 1, '2025-10-17 08:05:00', '2025-10-17 09:02:00', 95, 68, 'https://telemetry.aeroswift.com/flight1.json', NULL, 5.5, 'OK'),
+(2, 2, 2, 2, '2025-10-17 09:20:00', '2025-10-17 10:12:00', 90, 63, 'https://telemetry.aeroswift.com/flight2.json', NULL, 8.2, 'OK'),
+(3, 3, 3, 3, '2025-10-17 10:05:00', '2025-10-17 11:00:00', 88, 61, 'https://telemetry.aeroswift.com/flight3.json', 'Minor GPS drift detected', 10.5, 'Anomaly'),
+(4, 4, 4, 4, '2025-10-17 11:10:00', '2025-10-17 12:25:00', 85, 50, 'https://telemetry.aeroswift.com/flight4.json', NULL, 12.0, 'OK'),
+(5, 5, 5, 5, '2025-10-17 12:35:00', '2025-10-17 13:45:00', 92, 60, 'https://telemetry.aeroswift.com/flight5.json', 'Wind turbulence warning', 15.8, 'Anomaly'),
+(6, 6, 6, 6, '2025-10-17 13:05:00', '2025-10-17 14:05:00', 87, 65, 'https://telemetry.aeroswift.com/flight6.json', NULL, 18.4, 'OK'),
+(7, 7, 7, 7, '2025-10-17 14:20:00', '2025-10-17 15:18:00', 90, 62, 'https://telemetry.aeroswift.com/flight7.json', NULL, 20.0, 'OK'),
+(8, 8, 8, 8, '2025-10-17 15:35:00', '2025-10-17 16:40:00', 85, 55, 'https://telemetry.aeroswift.com/flight8.json', 'Temporary signal loss', 22.5, 'Anomaly'),
+(9, 9, 9, 9, '2025-10-17 16:50:00', '2025-10-17 17:58:00', 93, 66, 'https://telemetry.aeroswift.com/flight9.json', NULL, 25.0, 'OK'),
+(10, 10, 10, 10, '2025-10-17 17:40:00', '2025-10-17 18:40:00', 95, 70, 'https://telemetry.aeroswift.com/flight10.json', 'Battery temperature spike', 28.3, 'Anomaly');
+
+
+INSERT INTO ComplianceReport 
+(DeliveryID, AuthorityID, ReportType, CheckDate, Status, Remarks, ReferenceNumber)
+VALUES
+(1, 1, 'PreFlight', '2025-10-16', 'Approved', 'Pre-flight checklist verified.', 'CRF-1001'),
+(1, 1, 'PostFlight', '2025-10-17', 'Approved', 'All metrics within acceptable range.', 'CRP-1001'),
+(2, 2, 'PreFlight', '2025-10-16', 'Approved', 'Battery and payload within limits.', 'CRF-1002'),
+(2, 2, 'PostFlight', '2025-10-17', 'Approved', 'Flight completed without deviation.', 'CRP-1002'),
+(3, 3, 'PreFlight', '2025-10-16', 'Approved', 'Minor weather alert acknowledged.', 'CRF-1003'),
+(3, 3, 'PostFlight', '2025-10-17', 'Rejected', 'GPS anomaly observed during flight.', 'CRP-1003'),
+(4, 4, 'PreFlight', '2025-10-16', 'Approved', 'Route approval verified.', 'CRF-1004'),
+(4, 4, 'PostFlight', '2025-10-17', 'Pending', 'Awaiting telemetry confirmation.', 'CRP-1004'),
+(5, 5, 'PreFlight', '2025-10-16', 'Approved', 'Routine safety inspection passed.', 'CRF-1005'),
+(5, 5, 'PostFlight', '2025-10-17', 'Approved', 'All conditions nominal.', 'CRP-1005');
+
+
+INSERT INTO MaintenanceRecord 
+(DroneID, StartDate, EndDate, Description, MaintenanceType, PerformedBy, NextDueDate)
+VALUES
+(1, '2025-01-05', '2025-01-07', 'Routine firmware update and propeller check.', 'Scheduled Maintenance', 'TechOps Team A', '2025-07-05'),
+(3, '2025-02-10', '2025-02-11', 'GPS module recalibration due to drift.', 'Repair', 'TechOps Team B', '2025-08-10'),
+(5, '2025-03-15', '2025-03-16', 'Battery health test and firmware patch.', 'Inspection', 'TechOps Team C', '2025-09-15'),
+(7, '2025-04-12', '2025-04-13', 'Motor alignment check.', 'Scheduled Maintenance', 'TechOps Team D', '2025-10-12'),
+(9, '2025-05-20', '2025-05-21', 'Landing gear replacement after minor damage.', 'Repair', 'TechOps Team A', '2025-11-20');
+
+
+USE aeroswift_db;
+
+INSERT INTO Invoice 
+(OrderID, Amount, Tax, PaymentMethod, PaymentStatus, InvoiceDate)
+VALUES
+(71, 199.99, 36.00, 'Credit Card', 'Paid', '2025-10-17'),
+(72, 249.50, 44.91, 'UPI', 'Paid', '2025-10-17'),
+(73, 179.00, 32.22, 'Net Banking', 'Paid', '2025-10-17'),
+(74, 299.00, 53.82, 'Credit Card', 'Paid', '2025-10-17'),
+(75, 149.00, 26.82, 'Cash on Delivery', 'Pending', '2025-10-17'),
+(76, 350.00, 63.00, 'Debit Card', 'Paid', '2025-10-17'),
+(77, 180.00, 32.40, 'Wallet', 'Paid', '2025-10-17'),
+(78, 270.00, 48.60, 'UPI', 'Paid', '2025-10-17'),
+(79, 120.00, 21.60, 'Credit Card', 'Failed', '2025-10-17'),
+(80, 420.00, 75.60, 'Net Banking', 'Paid', '2025-10-17');
+
+
+select * from Customer;
+select * from OrderTable;
+select * from OrderItem;
+select * from Delivery;
+select * from ComplianceReport;
+START TRANSACTION;
+DELETE FROM Customer WHERE CustomerID = 11;
+-- Check results
+ROLLBACK; -- or COMMIT if you’re sure
+
+

@@ -1,0 +1,592 @@
+-- =====================================================
+-- AEROSWIFT LOGISTICS DATABASE SCHEMA (FINAL)
+-- =====================================================
+
+-- Clean Slate
+DROP DATABASE IF EXISTS aeroswift_db;
+
+CREATE DATABASE IF NOT EXISTS aeroswift_db 
+CHARACTER SET utf8mb4 
+COLLATE utf8mb4_unicode_ci;
+
+USE aeroswift_db;
+
+-- =====================================================
+-- A. MASTER / LOOKUP TABLES
+-- =====================================================
+
+CREATE TABLE Company (
+  CompanyID INT AUTO_INCREMENT PRIMARY KEY,
+  CompanyName VARCHAR(200) NOT NULL,
+  HQAddress VARCHAR(300),
+  ContactEmail VARCHAR(150),
+  ContactPhone VARCHAR(30),
+  UNIQUE (CompanyName)
+) ENGINE=InnoDB;
+
+CREATE TABLE DroneType (
+  DroneTypeID INT AUTO_INCREMENT PRIMARY KEY,
+  ModelName VARCHAR(150) NOT NULL,
+  MaxPayloadKg DECIMAL(7,2) NOT NULL,
+  CargoLengthCm DECIMAL(7,2),
+  CargoWidthCm DECIMAL(7,2),
+  CargoHeightCm DECIMAL(7,2),
+  RangeKm INT,
+  EnergyPerKm DECIMAL(6,3),
+  MinBatteryForTakeoffPercent TINYINT,
+  MaxStopsPerFlight TINYINT
+) ENGINE=InnoDB;
+
+CREATE TABLE DroneHub (
+  HubID INT AUTO_INCREMENT PRIMARY KEY,
+  HubName VARCHAR(150) NOT NULL,
+  LocationLat DECIMAL(9,6),
+  LocationLong DECIMAL(9,6),
+  Address VARCHAR(300),
+  MaxDocks INT DEFAULT 0,
+  CurrentAvailableDocks INT DEFAULT 0,
+  ContactPhone VARCHAR(30)
+) ENGINE=InnoDB;
+
+CREATE TABLE DeliveryZone (
+  DeliveryZoneID INT AUTO_INCREMENT PRIMARY KEY,
+  ZoneName VARCHAR(150) NOT NULL,
+  ZoneGeometry TEXT,
+  PriorityTag ENUM('High','Normal') DEFAULT 'Normal'
+) ENGINE=InnoDB;
+
+CREATE TABLE RegulatoryAuthority (
+  AuthorityID INT AUTO_INCREMENT PRIMARY KEY,
+  AuthorityName VARCHAR(200) NOT NULL,
+  ContactInfo VARCHAR(300),
+  JurisdictionNotes TEXT
+) ENGINE=InnoDB;
+
+CREATE TABLE AirspaceZone (
+  AirspaceZoneID INT AUTO_INCREMENT PRIMARY KEY,
+  ZoneName VARCHAR(150),
+  ZoneGeometry TEXT,
+  RestrictionType ENUM('NoFly','HeightLimit','DayTimeOnly','None') DEFAULT 'None',
+  ActiveFrom DATE,
+  ActiveTo DATE,
+  AuthorityID INT,
+  FOREIGN KEY (AuthorityID) REFERENCES RegulatoryAuthority(AuthorityID)
+) ENGINE=InnoDB;
+
+-- =====================================================
+-- B. CUSTOMER & ORDERS
+-- =====================================================
+
+CREATE TABLE Customer (
+  CustomerID INT AUTO_INCREMENT PRIMARY KEY,
+  FirstName VARCHAR(100),
+  LastName VARCHAR(100),
+  Email VARCHAR(150) UNIQUE,
+  CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  AddressStreet VARCHAR(200),
+  AddressCity VARCHAR(100),
+  AddressState VARCHAR(100),
+  AddressPincode VARCHAR(20),
+  PreferredDeliveryWindow VARCHAR(100)
+) ENGINE=InnoDB;
+
+CREATE TABLE CustomerPhone (
+  CustomerID INT,
+  PhoneNo VARCHAR(30),
+  PRIMARY KEY (CustomerID, PhoneNo),
+  FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE OrderTable (
+  OrderID INT AUTO_INCREMENT PRIMARY KEY,
+  CustomerID INT NOT NULL,
+  OrderDateTime DATETIME DEFAULT CURRENT_TIMESTAMP,
+  Priority ENUM('Standard','Express') DEFAULT 'Standard',
+  Status ENUM('Created','Confirmed','Cancelled') DEFAULT 'Created',
+  BillingAmount DECIMAL(10,2),
+  BillingAddressStreet VARCHAR(200),
+  BillingAddressCity VARCHAR(100),
+  BillingAddressPincode VARCHAR(20),
+  DeliveryZoneID INT,
+  FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID),
+  FOREIGN KEY (DeliveryZoneID) REFERENCES DeliveryZone(DeliveryZoneID)
+) ENGINE=InnoDB;
+
+CREATE TABLE OrderItem (
+  OrderID INT NOT NULL,
+  ItemNo INT NOT NULL,
+  SKU VARCHAR(100),
+  Description TEXT,
+  WeightKg DECIMAL(7,3),
+  LengthCm DECIMAL(7,2),
+  WidthCm DECIMAL(7,2),
+  HeightCm DECIMAL(7,2),
+  Quantity INT DEFAULT 1,
+  SpecialHandlingFlag BOOLEAN DEFAULT FALSE,
+  PRIMARY KEY (OrderID, ItemNo),
+  FOREIGN KEY (OrderID) REFERENCES OrderTable(OrderID) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- =====================================================
+-- C. DRONES, PILOTS, LICENSING
+-- =====================================================
+
+CREATE TABLE Drone (
+  DroneID INT AUTO_INCREMENT PRIMARY KEY,
+  RegistrationNo VARCHAR(100) UNIQUE,
+  DroneTypeID INT,
+  CompanyID INT,
+  CurrentHubID INT,
+  Status ENUM('Idle','Charging','Active','Maintenance') DEFAULT 'Idle',
+  BatteryLevelPercent TINYINT CHECK (BatteryLevelPercent BETWEEN 0 AND 100),
+  ManufactureDate DATE,
+  FlightHoursAccumulated INT DEFAULT 0,
+  LastMaintenanceDate DATE,
+  FOREIGN KEY (DroneTypeID) REFERENCES DroneType(DroneTypeID),
+  FOREIGN KEY (CompanyID) REFERENCES Company(CompanyID),
+  FOREIGN KEY (CurrentHubID) REFERENCES DroneHub(HubID)
+) ENGINE=InnoDB;
+
+CREATE TABLE Pilot (
+  PilotID INT AUTO_INCREMENT PRIMARY KEY,
+  Name VARCHAR(150) NOT NULL,
+  LicenseNo VARCHAR(100) UNIQUE,
+  ContactPhone VARCHAR(30),
+  LicenseIssueDate DATE,
+  LicenseExpiryDate DATE,
+  ActiveStatus BOOLEAN DEFAULT TRUE
+) ENGINE=InnoDB;
+
+CREATE TABLE PilotLicense (
+  PilotID INT,
+  DroneTypeID INT,
+  IssueDate DATE,
+  ExpiryDate DATE,
+  PRIMARY KEY (PilotID, DroneTypeID),
+  FOREIGN KEY (PilotID) REFERENCES Pilot(PilotID),
+  FOREIGN KEY (DroneTypeID) REFERENCES DroneType(DroneTypeID)
+) ENGINE=InnoDB;
+
+-- =====================================================
+-- D. PERMITS, WAIVERS, ROUTES
+-- =====================================================
+
+CREATE TABLE Permit (
+  PermitID INT AUTO_INCREMENT PRIMARY KEY,
+  DroneID INT,
+  AuthorityID INT,
+  IssueDate DATE,
+  ExpiryDate DATE,
+  PermitType VARCHAR(100),
+  PermitDocumentLink VARCHAR(300),
+  Status ENUM('Active','Expired','Revoked') DEFAULT 'Active',
+  FOREIGN KEY (DroneID) REFERENCES Drone(DroneID),
+  FOREIGN KEY (AuthorityID) REFERENCES RegulatoryAuthority(AuthorityID)
+) ENGINE=InnoDB;
+
+CREATE TABLE Route (
+  RouteID INT AUTO_INCREMENT PRIMARY KEY,
+  PathGeometry TEXT,
+  DistanceKm DECIMAL(8,2),
+  EstimatedDurationMin INT,
+  ApprovedFlag CHAR(1) DEFAULT 'N',
+  CreatedBy VARCHAR(100),
+  CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE Waiver (
+  WaiverID INT AUTO_INCREMENT PRIMARY KEY,
+  AuthorityID INT,
+  GrantedForRouteID INT NULL,
+  GrantedFromDate DATE,
+  GrantedToDate DATE,
+  DocumentLink VARCHAR(300),
+  Status ENUM('Granted','Revoked','Expired') DEFAULT 'Granted',
+  FOREIGN KEY (AuthorityID) REFERENCES RegulatoryAuthority(AuthorityID),
+  FOREIGN KEY (GrantedForRouteID) REFERENCES Route(RouteID)
+) ENGINE=InnoDB;
+
+CREATE TABLE RouteZone (
+  RouteID INT,
+  AirspaceZoneID INT,
+  IntersectType ENUM('Cross','Touch','Contain'),
+  WaiverID INT,
+  PRIMARY KEY (RouteID, AirspaceZoneID),
+  FOREIGN KEY (RouteID) REFERENCES Route(RouteID),
+  FOREIGN KEY (AirspaceZoneID) REFERENCES AirspaceZone(AirspaceZoneID),
+  FOREIGN KEY (WaiverID) REFERENCES Waiver(WaiverID)
+) ENGINE=InnoDB;
+
+-- =====================================================
+-- E. DELIVERIES & BATCHES
+-- =====================================================
+
+CREATE TABLE DeliveryBatch (
+  BatchID INT AUTO_INCREMENT PRIMARY KEY,
+  DeliveryZoneID INT,
+  CreatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  WindowStart DATETIME,
+  WindowEnd DATETIME,
+  Status ENUM('Open','Closed') DEFAULT 'Open',
+  EstimatedSavings DECIMAL(10,2),
+  FOREIGN KEY (DeliveryZoneID) REFERENCES DeliveryZone(DeliveryZoneID)
+) ENGINE=InnoDB;
+
+CREATE TABLE Delivery (
+  DeliveryID INT AUTO_INCREMENT PRIMARY KEY,
+  OrderID INT NOT NULL,
+  DeliveryZoneID INT,
+  AssignedDroneID INT NULL,
+  AssignedPilotID INT NULL,
+  SourceHubID INT,
+  DestinationHubID INT NULL,
+  RouteID INT,
+  BatchID INT NULL,
+  ScheduledStartTime DATETIME,
+  ScheduledEndTime DATETIME,
+  ActualStartTime DATETIME,
+  ActualEndTime DATETIME,
+  Status ENUM('Scheduled','InTransit','Completed','Failed') DEFAULT 'Scheduled',
+  EstimatedCost DECIMAL(10,2) DEFAULT 0,
+  ActualCost DECIMAL(10,2) DEFAULT 0,
+  ProofOfDeliveryLink VARCHAR(300),
+  FOREIGN KEY (OrderID) REFERENCES OrderTable(OrderID),
+  FOREIGN KEY (DeliveryZoneID) REFERENCES DeliveryZone(DeliveryZoneID),
+  FOREIGN KEY (AssignedDroneID) REFERENCES Drone(DroneID),
+  FOREIGN KEY (AssignedPilotID) REFERENCES Pilot(PilotID),
+  FOREIGN KEY (SourceHubID) REFERENCES DroneHub(HubID),
+  FOREIGN KEY (DestinationHubID) REFERENCES DroneHub(HubID),
+  FOREIGN KEY (RouteID) REFERENCES Route(RouteID),
+  FOREIGN KEY (BatchID) REFERENCES DeliveryBatch(BatchID)
+) ENGINE=InnoDB;
+
+-- =====================================================
+-- F. FLIGHT LOGS, COMPLIANCE, MAINTENANCE
+-- =====================================================
+
+CREATE TABLE FlightLog (
+  FlightLogID INT AUTO_INCREMENT PRIMARY KEY,
+  DeliveryID INT,
+  DroneID INT,
+  PilotID INT,
+  RouteID INT,
+  StartTime DATETIME,
+  EndTime DATETIME,
+  BatteryStartPercent TINYINT CHECK (BatteryStartPercent BETWEEN 0 AND 100),
+  BatteryEndPercent TINYINT CHECK (BatteryEndPercent BETWEEN 0 AND 100),
+  TelemetrySummaryLink VARCHAR(300),
+  Anomalies TEXT,
+  DistanceKm DECIMAL(8,2),
+  FlightStatus ENUM('OK','Anomaly','Aborted') DEFAULT 'OK',
+  FOREIGN KEY (DeliveryID) REFERENCES Delivery(DeliveryID),
+  FOREIGN KEY (DroneID) REFERENCES Drone(DroneID),
+  FOREIGN KEY (PilotID) REFERENCES Pilot(PilotID),
+  FOREIGN KEY (RouteID) REFERENCES Route(RouteID)
+) ENGINE=InnoDB;
+
+CREATE TABLE ComplianceReport (
+  ReportID INT AUTO_INCREMENT PRIMARY KEY,
+  DeliveryID INT,
+  AuthorityID INT,
+  ReportType ENUM('PreFlight','PostFlight'),
+  CheckDate DATE,
+  Status ENUM('Approved','Rejected','Pending'),
+  Remarks TEXT,
+  ReferenceNumber VARCHAR(100),
+  FOREIGN KEY (DeliveryID) REFERENCES Delivery(DeliveryID),
+  FOREIGN KEY (AuthorityID) REFERENCES RegulatoryAuthority(AuthorityID)
+) ENGINE=InnoDB;
+
+CREATE TABLE MaintenanceRecord (
+  MaintenanceID INT AUTO_INCREMENT PRIMARY KEY,
+  DroneID INT,
+  StartDate DATE,
+  EndDate DATE,
+  Description TEXT,
+  MaintenanceType VARCHAR(100),
+  PerformedBy VARCHAR(150),
+  NextDueDate DATE,
+  FOREIGN KEY (DroneID) REFERENCES Drone(DroneID)
+) ENGINE=InnoDB;
+
+CREATE TABLE Invoice (
+  InvoiceID INT AUTO_INCREMENT PRIMARY KEY,
+  OrderID INT,
+  Amount DECIMAL(10,2),
+  Tax DECIMAL(10,2),
+  PaymentMethod VARCHAR(50),
+  PaymentStatus ENUM('Pending','Paid','Failed') DEFAULT 'Pending',
+  InvoiceDate DATE,
+  FOREIGN KEY (OrderID) REFERENCES OrderTable(OrderID)
+) ENGINE=InnoDB;
+
+-- =====================================================
+-- INDEXES
+-- =====================================================
+
+CREATE INDEX idx_delivery_scheduled ON Delivery(ScheduledStartTime);
+CREATE INDEX idx_drone_status ON Drone(Status);
+CREATE INDEX idx_order_customer ON OrderTable(CustomerID);
+CREATE INDEX idx_flightlog_start ON FlightLog(StartTime);
+
+-- =====================================================
+-- SAMPLE DATA
+-- =====================================================
+
+INSERT INTO Company (CompanyName, HQAddress, ContactEmail) VALUES
+('AeroSwift Logistics','MetroCity HQ','contact@aeroswift.com');
+
+INSERT INTO DroneHub (HubName, LocationLat, LocationLong, Address, MaxDocks, CurrentAvailableDocks, ContactPhone)
+VALUES
+('Central Hub', 17.445, 78.348, 'Central Campus', 10, 8, '9998887777'),
+('North Hub', 17.495, 78.360, 'North Sector', 8, 6, '9998887778');
+
+INSERT INTO DroneType (ModelName, MaxPayloadKg, CargoLengthCm, CargoWidthCm, CargoHeightCm, RangeKm, EnergyPerKm, MinBatteryForTakeoffPercent, MaxStopsPerFlight)
+VALUES
+('AS-100', 5.00, 60.0, 40.0, 30.0, 20, 0.25, 30, 3),
+('AS-200', 8.00, 80.0, 60.0, 45.0, 40, 0.40, 35, 4);
+
+INSERT INTO Drone (RegistrationNo, DroneTypeID, CompanyID, CurrentHubID, Status, BatteryLevelPercent)
+VALUES
+('REG-001', 1, 1, 1, 'Idle', 85),
+('REG-002', 2, 1, 1, 'Charging', 45);
+
+INSERT INTO Pilot (Name, LicenseNo, ContactPhone, LicenseIssueDate, LicenseExpiryDate)
+VALUES
+('Rhea Kumar','LIC-1001','9001234567','2023-01-10','2026-01-09'),
+('Arjun Singh','LIC-1002','9009876543','2022-06-01','2025-05-31');
+
+INSERT INTO Customer (FirstName, LastName, Email, AddressStreet, AddressCity, AddressState, AddressPincode)
+VALUES
+('Shreya','Gupta','shreya@example.com','12 College Rd','MetroCity','StateX','500001');
+
+INSERT INTO DeliveryZone (ZoneName, ZoneGeometry, PriorityTag)
+VALUES ('Zone A', '{}', 'Normal');
+
+INSERT INTO OrderTable (CustomerID, Priority, Status, BillingAmount, BillingAddressStreet, BillingAddressCity, BillingAddressPincode, DeliveryZoneID)
+VALUES (1,'Standard','Created',249.99,'12 College Rd','MetroCity','500001',1);
+
+INSERT INTO OrderItem (OrderID, ItemNo, SKU, Description, WeightKg, Quantity)
+VALUES (1,1,'SKU-BOOK-01','Electronics part',1.5,1);
+
+-- =====================================================
+-- STORED PROCEDURES & TRIGGERS FOR RULES
+-- =====================================================
+
+DELIMITER $$
+
+-- 1️⃣ Payload & Battery Validation (Already Implemented)
+CREATE PROCEDURE assign_drone_to_delivery(
+  IN p_delivery_id INT,
+  IN p_drone_id INT
+)
+BEGIN
+  DECLARE v_order_weight DECIMAL(10,3);
+  DECLARE v_max_payload DECIMAL(10,2);
+  DECLARE v_energy_per_km DECIMAL(6,3);
+  DECLARE v_distance DECIMAL(8,2);
+  DECLARE v_min_battery TINYINT;
+  DECLARE v_battery_start TINYINT;
+  DECLARE v_safety_reserve TINYINT DEFAULT 25;
+  DECLARE v_battery_required TINYINT DEFAULT 0;
+
+  SELECT IFNULL(SUM(WeightKg * Quantity),0) INTO v_order_weight
+  FROM OrderItem oi
+  JOIN OrderTable o ON oi.OrderID = o.OrderID
+  WHERE o.OrderID = (SELECT OrderID FROM Delivery WHERE DeliveryID = p_delivery_id);
+
+  SELECT dt.MaxPayloadKg, dt.EnergyPerKm, dt.MinBatteryForTakeoffPercent
+    INTO v_max_payload, v_energy_per_km, v_min_battery
+  FROM Drone d JOIN DroneType dt ON d.DroneTypeID = dt.DroneTypeID
+  WHERE d.DroneID = p_drone_id;
+
+  SELECT IFNULL(DistanceKm, 0) INTO v_distance
+  FROM Route r JOIN Delivery del ON r.RouteID = del.RouteID
+  WHERE del.DeliveryID = p_delivery_id;
+
+  SET v_battery_required = CEILING(v_distance * v_energy_per_km);
+  SELECT BatteryLevelPercent INTO v_battery_start FROM Drone WHERE DroneID = p_drone_id;
+
+  IF v_order_weight > v_max_payload THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ORDER WEIGHT EXCEEDS DRONE PAYLOAD';
+  END IF;
+
+  IF v_battery_start < (v_min_battery + v_battery_required + v_safety_reserve) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'INSUFFICIENT BATTERY FOR ASSIGNMENT';
+  END IF;
+
+  START TRANSACTION;
+    UPDATE Delivery SET AssignedDroneID = p_drone_id, Status = 'Scheduled' WHERE DeliveryID = p_delivery_id;
+    INSERT INTO ComplianceReport (DeliveryID, AuthorityID, ReportType, CheckDate, Status, Remarks)
+    VALUES (p_delivery_id, NULL, 'PreFlight', CURDATE(), 'Pending', 'Assigned by assign_drone_to_delivery');
+  COMMIT;
+END$$
+
+-- 2️⃣ Pilot Assignment Validation
+CREATE PROCEDURE assign_pilot_to_delivery(
+  IN p_delivery_id INT,
+  IN p_pilot_id INT
+)
+BEGIN
+  DECLARE v_drone_id INT;
+  DECLARE v_drone_type INT;
+  DECLARE v_license_expiry DATE;
+  DECLARE v_scheduled_end DATETIME;
+  DECLARE v_license_exists INT;
+
+  SELECT AssignedDroneID, ScheduledEndTime INTO v_drone_id, v_scheduled_end
+  FROM Delivery WHERE DeliveryID = p_delivery_id;
+
+  IF v_drone_id IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'NO DRONE ASSIGNED TO DELIVERY';
+  END IF;
+
+  SELECT DroneTypeID INTO v_drone_type FROM Drone WHERE DroneID = v_drone_id;
+
+  SELECT COUNT(*) INTO v_license_exists
+  FROM PilotLicense
+  WHERE PilotID = p_pilot_id AND DroneTypeID = v_drone_type;
+
+  IF v_license_exists = 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PILOT NOT LICENSED FOR THIS DRONE TYPE';
+  END IF;
+
+  SELECT LicenseExpiryDate INTO v_license_expiry FROM Pilot WHERE PilotID = p_pilot_id;
+
+  IF v_license_expiry <= v_scheduled_end THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PILOT LICENSE EXPIRES BEFORE DELIVERY END';
+  END IF;
+
+  UPDATE Delivery SET AssignedPilotID = p_p
+  
+  
+    UPDATE Delivery SET AssignedPilotID = p_pilot_id WHERE DeliveryID = p_delivery_id;
+
+  INSERT INTO ComplianceReport (DeliveryID, AuthorityID, ReportType, CheckDate, Status, Remarks)
+  VALUES (p_delivery_id, NULL, 'PreFlight', CURDATE(), 'Pending', 'Pilot assigned successfully');
+END$$
+
+
+-- =====================================================
+-- 3️⃣ Route Approval with Airspace Validation
+-- =====================================================
+CREATE PROCEDURE approve_route(
+  IN p_route_id INT,
+  IN p_approver VARCHAR(100)
+)
+BEGIN
+  DECLARE v_nofly_count INT;
+  DECLARE v_waiver_count INT;
+
+  -- Check for No-Fly zones
+  SELECT COUNT(*) INTO v_nofly_count
+  FROM RouteZone rz
+  JOIN AirspaceZone az ON rz.AirspaceZoneID = az.AirspaceZoneID
+  WHERE rz.RouteID = p_route_id AND az.RestrictionType = 'NoFly';
+
+  -- Check for valid waivers
+  SELECT COUNT(*) INTO v_waiver_count
+  FROM RouteZone rz
+  JOIN Waiver w ON rz.WaiverID = w.WaiverID
+  WHERE rz.RouteID = p_route_id AND w.Status = 'Granted';
+
+  IF v_nofly_count > 0 AND v_waiver_count = 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ROUTE INTERSECTS NO-FLY ZONE WITHOUT VALID WAIVER';
+  END IF;
+
+  -- Approve the route
+  UPDATE Route SET ApprovedFlag = 'Y' WHERE RouteID = p_route_id;
+
+  INSERT INTO ComplianceReport (DeliveryID, AuthorityID, ReportType, CheckDate, Status, Remarks)
+  VALUES (NULL, NULL, 'PreFlight', CURDATE(), 'Approved', CONCAT('Route ', p_route_id, ' approved by ', p_approver));
+END$$
+
+
+-- =====================================================
+-- 4️⃣ Pre-Flight Validation Trigger (Before Delivery goes InTransit)
+-- =====================================================
+
+CREATE TRIGGER trg_before_delivery_update
+BEFORE UPDATE ON Delivery
+FOR EACH ROW
+BEGIN
+  IF NEW.Status = 'InTransit' AND OLD.Status <> 'InTransit' THEN
+    DECLARE v_drone_battery TINYINT;
+    DECLARE v_min_takeoff TINYINT;
+    DECLARE v_order_weight DECIMAL(10,3);
+
+    -- Ensure drone and pilot assigned
+    IF NEW.AssignedDroneID IS NULL OR NEW.AssignedPilotID IS NULL THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'DRONE OR PILOT NOT ASSIGNED';
+    END IF;
+
+    -- Drone must be Idle
+    IF (SELECT Status FROM Drone WHERE DroneID = NEW.AssignedDroneID) <> 'Idle' THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'DRONE IS NOT IDLE';
+    END IF;
+
+    -- Permit must be valid
+    IF NOT EXISTS (
+      SELECT 1 FROM Permit 
+      WHERE DroneID = NEW.AssignedDroneID 
+      AND Status = 'Active' 
+      AND ExpiryDate > NOW()
+    ) THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'NO VALID PERMIT FOR DRONE';
+    END IF;
+
+    -- License expiry check
+    IF (SELECT LicenseExpiryDate FROM Pilot WHERE PilotID = NEW.AssignedPilotID) <= NEW.ScheduledEndTime THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PILOT LICENSE EXPIRES BEFORE DELIVERY END';
+    END IF;
+
+    -- Battery & payload checks
+    SELECT BatteryLevelPercent INTO v_drone_battery FROM Drone WHERE DroneID = NEW.AssignedDroneID;
+    SELECT dt.MinBatteryForTakeoffPercent INTO v_min_takeoff 
+    FROM DroneType dt JOIN Drone d ON d.DroneTypeID = dt.DroneTypeID 
+    WHERE d.DroneID = NEW.AssignedDroneID;
+
+    SELECT IFNULL(SUM(oi.WeightKg * oi.Quantity),0) INTO v_order_weight
+    FROM OrderItem oi WHERE oi.OrderID = NEW.OrderID;
+
+    IF v_drone_battery < v_min_takeoff THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'DRONE BATTERY BELOW MINIMUM TAKEOFF';
+    END IF;
+
+    IF v_order_weight > (
+      SELECT MaxPayloadKg FROM DroneType dt JOIN Drone d ON d.DroneTypeID = dt.DroneTypeID WHERE d.DroneID = NEW.AssignedDroneID
+    ) THEN
+      SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'PAYLOAD EXCEEDS DRONE CAPACITY';
+    END IF;
+  END IF;
+END$$
+
+
+-- =====================================================
+-- 5️⃣ Immutable Flight Logs (No update or delete)
+-- =====================================================
+
+CREATE TRIGGER trg_no_update_flightlog
+BEFORE UPDATE ON FlightLog
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'FLIGHT LOGS CANNOT BE UPDATED';
+END$$
+
+CREATE TRIGGER trg_no_delete_flightlog
+BEFORE DELETE ON FlightLog
+FOR EACH ROW
+BEGIN
+  SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'FLIGHT LOGS CANNOT BE DELETED';
+END$$
+
+DELIMITER ;
+
+-- =====================================================
+-- ✅ END OF ALL RULES IMPLEMENTATION
+-- =====================================================
+
+SHOW TABLES;
+SHOW PROCEDURE STATUS WHERE Db='aeroswift_db';
+SHOW TRIGGERS;
+
