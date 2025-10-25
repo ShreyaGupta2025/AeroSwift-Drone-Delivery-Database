@@ -1,118 +1,55 @@
+# 🚀 AeroSwift Drone Logistics Management System
+
+### **Efficient • Automated • Compliant**
+
+AeroSwift is a **drone-based logistics management system** designed to automate and monitor the full lifecycle of drone deliveries — from order placement to pilot assignment, compliance validation, and flight logging.  
+
+Developed as part of a **Database Management Systems (DBMS)** project, this system demonstrates how **relational databases**, **stored procedures**, and **Streamlit dashboards** can model real-world logistics automation.
 
 ---
 
-### 🧩 Objective
+## 🧩 **Project Overview**
 
-To **design and implement a relational database** and a connected **web-based interface** for managing:
-- Customers and their orders,
-- Drone fleets and pilot licensing,
-- Delivery scheduling and route management,
-- Compliance with aviation regulations, and
-- Maintenance and reporting.
+AeroSwift Logistics simulates a company that uses **autonomous drones** and **certified pilots** to transport lightweight packages across delivery zones in Indian cities.  
+The system handles:
 
-The goal is to simulate **real-world drone logistics automation**, where placing an order automatically triggers backend processes for drone assignment, pilot verification, route approval, and delivery execution.
+- Customer and order management  
+- Drone and pilot allocation  
+- Flight route validation  
+- Airspace compliance checks  
+- Real-time delivery tracking and reporting  
+
+All workflows are **automatically triggered** via MySQL **stored procedures** and **triggers**, simulating an intelligent logistics control center.
 
 ---
 
-### 🧠 Key Entities in the Miniworld
+## 🌍 **Miniworld Description**
+
+The project models a **realistic operational ecosystem** involving:
 
 | Entity | Description |
 |---------|-------------|
-| **Customer** | People who place delivery orders through the system |
-| **Order & Order Items** | Information about customer orders and specific products |
-| **Delivery Zone** | Defined operational zones where drone delivery is supported |
-| **Drone & Drone Type** | Represents individual drones and their specifications (payload, range, energy, etc.) |
-| **Pilot** | Licensed drone operators with verified certifications |
-| **Permit** | Permissions granted by aviation authorities for drone operations |
-| **Route & Route Zone** | Defines flight paths and their interaction with restricted airspace |
-| **Regulatory Authority** | Entities like DGCA or Air Traffic Control Bureau overseeing airspace compliance |
-| **Delivery** | Core operational record connecting customer, order, drone, pilot, and route |
-| **Flight Log** | Post-flight telemetry and data summary for each delivery |
-| **Maintenance Record** | Ensures drone health and scheduled servicing |
-| **Compliance Report** | Logs of regulatory checks before and after flights |
+| **Customer** | Places delivery orders |
+| **Order & OrderItem** | Details of each purchase and package |
+| **Delivery** | Central process connecting drones, pilots, and routes |
+| **Drone & DroneType** | Represents fleet capacity and specifications |
+| **Pilot & PilotLicense** | Ensures only licensed pilots operate authorized drones |
+| **Permit & Waiver** | Legal clearances from aviation authorities |
+| **Route & AirspaceZone** | Path and restrictions for each delivery flight |
+| **ComplianceReport & FlightLog** | Records pre-flight checks and telemetry |
+| **MaintenanceRecord** | Logs drone inspections and servicing |
+| **Invoice** | Handles payment tracking and billing |
 
 ---
 
-### ⚙️ How the Workflow Operates
+## ⚙️ **System Workflow**
 
-1. **Order Placement**
-   - A customer places an order through the Streamlit interface.
-   - Order details and selected items are stored in `OrderTable` and `OrderItem`.
-
-2. **Automatic Drone Assignment**
-   - A stored procedure (`assign_drone_to_delivery`) validates payload and battery.
-   - If the drone qualifies, it’s automatically assigned to the delivery.
-
-3. **Pilot Verification**
-   - Another procedure (`assign_pilot_to_delivery`) ensures the pilot’s license matches the drone type and is valid through the delivery date.
-
-4. **Route Approval**
-   - The system runs checks using `approve_route` to ensure no restricted airspace is violated.
-
-5. **Delivery Execution**
-   - Delivery begins once all validations are cleared.
-   - A trigger (`trg_before_delivery_update`) ensures safety conditions are met before “InTransit” status.
-
-6. **Flight Logging**
-   - Real-time telemetry data is logged in `FlightLog`.
-   - Compliance reports are generated automatically.
-
-7. **Completion & Billing**
-   - Once the delivery ends, costs are calculated and recorded in `Invoice`.
-
----
-
-### 🧾 Features Implemented
-
-✅ End-to-end database with **20+ interlinked tables**  
-✅ **Stored Procedures & Triggers** for automated backend operations  
-✅ **Preloaded data** for companies, drones, pilots, zones, and routes  
-✅ **Streamlit Interface** for:
-- Placing new orders  
-- Viewing all customers, drones, and deliveries  
-- Visualizing analytics and compliance  
-✅ Real-time workflow simulation  
-✅ Normalized relational schema ensuring data integrity  
-
----
-
-### 🎯 Real-World Relevance
-
-The system reflects **how drone logistics companies like Zipline, Skydio, or Amazon Prime Air** operate:
-- Assigning drones dynamically based on package load  
-- Managing pilot and route authorizations  
-- Logging every delivery for compliance and analytics  
-
-It can be easily extended to include:
-- Weather integration (for delivery scheduling),
-- Live GPS tracking of drones,
-- Customer order tracking pages.
-
----
-
-### 🧮 Technologies Used
-
-| Layer | Technology |
-|--------|-------------|
-| **Frontend** | Streamlit (Python) |
-| **Backend Logic** | MySQL Stored Procedures & Triggers |
-| **Database** | MySQL (InnoDB) |
-| **Libraries** | Pandas, mysql.connector, Streamlit |
-| **Optional Hosting** | Streamlit Cloud / Render / PlanetScale |
-
----
-
-### 🧾 Project Summary
-
-**AeroSwift Drone Logistics Management System**  
-is a complete database application that models the operational and regulatory side of drone-based deliveries.  
-
-It enables **automation, monitoring, and compliance** — from customer orders to flight logging — representing the next generation of urban logistics management.
-
----
-
-### 👩‍💻 Developed By
-
-**Shreya Gupta**  
-B.Tech (EEE), BITS Pilani Hyderabad Campus  
-Project: *AeroSwift Drone Logistics Management System* 
+```text
+1️⃣ Customer places an order through the Streamlit interface.
+2️⃣ Database automatically assigns a suitable drone (procedure: assign_drone_to_delivery).
+3️⃣ A pilot is verified and assigned (procedure: assign_pilot_to_delivery).
+4️⃣ Route is validated against restricted airspace (procedure: approve_route).
+5️⃣ Pre-flight safety checks are enforced by triggers.
+6️⃣ Flight details are logged automatically in FlightLog.
+7️⃣ Post-flight compliance and maintenance updates are recorded.
+8️⃣ Invoice is generated and linked to the delivery.
